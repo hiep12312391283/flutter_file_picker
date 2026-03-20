@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:typed_data';
 
-import 'package:file_picker/src/api/file_picker_result.dart';
 import 'package:file_picker/src/api/file_picker_types.dart';
+import 'package:file_picker/src/api/file_picker_result.dart';
 import 'package:file_picker/src/api/platform_file.dart';
 import 'package:file_picker/src/platform/file_picker_platform_interface.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
@@ -25,12 +25,26 @@ class FilePickerWeb extends FilePickerPlatform {
   }
 
   /// Initializes a DOM container where we can host input elements.
+  /// Pinned to center of viewport so iOS renders the file picker sheet
+  /// from the bottom (natural iOS behavior) regardless of where the
+  /// trigger button is on screen.
   Element _ensureInitialized(String id) {
     Element? target = document.querySelector('#$id');
     if (target == null) {
       final Element targetElement = document.createElement(
         'flt-file-picker-inputs',
       )..id = id;
+
+      // Pin to center of viewport:
+      // - position: fixed so it's always relative to viewport, not page scroll
+      // - top: 50% / left: 50% so iOS sees input in the middle and renders
+      //   the action sheet from the bottom (standard iOS UX)
+      // - width/height: 1px minimum so the element has a real position in DOM
+      // - opacity: 0 + overflow: hidden to keep it invisible
+      targetElement.setAttribute(
+        'style',
+        'position: fixed; top: 50%; left: 50%; width: 1px; height: 1px; opacity: 0; overflow: hidden;',
+      );
 
       document.querySelector('body')!.children.add(targetElement);
       target = targetElement;
@@ -68,7 +82,14 @@ class FilePickerWeb extends FilePickerPlatform {
     uploadInput.draggable = true;
     uploadInput.multiple = allowMultiple;
     uploadInput.accept = accept;
-    uploadInput.style.display = 'none';
+
+    // Use opacity: 0 instead of display: none so the element has a real
+    // position in the DOM. display: none removes the element from layout,
+    // causing iOS to lose track of where to anchor the picker sheet.
+    uploadInput.style.opacity = '0';
+    uploadInput.style.position = 'fixed';
+    uploadInput.style.width = '1px';
+    uploadInput.style.height = '1px';
 
     bool changeEventTriggered = false;
 
@@ -176,20 +197,23 @@ class FilePickerWeb extends FilePickerPlatform {
       window.addEventListener('focus', cancelledEventListener.toJS);
     }
 
-    //Add input element to the page body
+    // Clear any previous input elements
     Node? firstChild = _target.firstChild;
     while (firstChild != null) {
       _target.removeChild(firstChild);
       firstChild = _target.firstChild;
     }
+
+    // Add input to DOM and click — input must stay in DOM until user finishes
+    // picking so iOS can correctly anchor the sheet position
     _target.children.add(uploadInput);
     uploadInput.click();
 
-    // ✅ Bỏ hết đoạn remove ở đây, chỉ await thôi
+    // Wait for user to finish picking before cleaning up DOM
     final List<PlatformFile>? files = await filesCompleter.future;
     filesCompleter = null;
 
-    // ✅ Cleanup SAU KHI có kết quả
+    // Cleanup input from DOM after result is received
     firstChild = _target.firstChild;
     while (firstChild != null) {
       _target.removeChild(firstChild);
