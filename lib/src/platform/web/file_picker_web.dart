@@ -37,13 +37,17 @@ class FilePickerWeb extends FilePickerPlatform {
 
       // Pin to center of viewport:
       // - position: fixed so it's always relative to viewport, not page scroll
-      // - top: 50% / left: 50% so iOS sees input in the middle and renders
-      //   the action sheet from the bottom (standard iOS UX)
+      // - top: 50% / left: 50% + transform: translate(-50%, -50%) ensures the
+      //   element is truly centered (not just offset from top-left corner).
+      //   iOS/WKWebView renders the action sheet relative to the input element's
+      //   position. Without the transform, the element sits at the center-right
+      //   quadrant, causing the sheet to appear in unexpected positions on
+      //   Safari and WKWebView (mobile app WebView).
       // - width/height: 1px minimum so the element has a real position in DOM
-      // - opacity: 0 + overflow: hidden to keep it invisible
+      // - opacity: 0 + overflow: hidden + pointer-events: none to stay invisible
       targetElement.setAttribute(
         'style',
-        'position: fixed; top: 50%; left: 50%; width: 1px; height: 1px; opacity: 0; overflow: hidden;',
+        'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none;',
       );
 
       document.querySelector('body')!.children.add(targetElement);
@@ -282,7 +286,11 @@ class FilePickerWeb extends FilePickerPlatform {
         return 'video/*';
 
       case FileType.media:
-        return 'video/*|image/*';
+        // Use comma as separator — the HTML spec and all browsers including
+        // Safari / WKWebView accept comma-separated MIME types. The pipe '|'
+        // is NOT a valid separator and causes Safari to ignore the accept
+        // attribute entirely, leading to wrong file picker behavior.
+        return 'video/*,image/*';
 
       case FileType.custom:
         return allowedExtensions!.fold(
