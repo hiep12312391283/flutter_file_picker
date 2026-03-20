@@ -25,9 +25,9 @@ class FilePickerWeb extends FilePickerPlatform {
   }
 
   /// Initializes a DOM container where we can host input elements.
-  /// Pinned to center of viewport so iOS renders the file picker sheet
-  /// from the bottom (natural iOS behavior) regardless of where the
-  /// trigger button is on screen.
+  /// Anchored to the bottom of the viewport so iOS / WKWebView renders
+  /// the file-picker action sheet from the bottom edge of the screen
+  /// (standard iOS UX) regardless of where the Flutter trigger widget is.
   Element _ensureInitialized(String id) {
     Element? target = document.querySelector('#$id');
     if (target == null) {
@@ -35,19 +35,25 @@ class FilePickerWeb extends FilePickerPlatform {
         'flt-file-picker-inputs',
       )..id = id;
 
-      // Pin to center of viewport:
-      // - position: fixed so it's always relative to viewport, not page scroll
-      // - top: 50% / left: 50% + transform: translate(-50%, -50%) ensures the
-      //   element is truly centered (not just offset from top-left corner).
-      //   iOS/WKWebView renders the action sheet relative to the input element's
-      //   position. Without the transform, the element sits at the center-right
-      //   quadrant, causing the sheet to appear in unexpected positions on
-      //   Safari and WKWebView (mobile app WebView).
-      // - width/height: 1px minimum so the element has a real position in DOM
-      // - opacity: 0 + overflow: hidden + pointer-events: none to stay invisible
+      // Strategy for reliable iOS / WKWebView sheet positioning:
+      //
+      // iOS anchors the "Photo Library / Choose File" action sheet to the
+      // screen position of the <input type="file"> element that was tapped.
+      // If the element is invisible and tiny (e.g. 1×1 px at the center),
+      // WKWebView may anchor the sheet to an unexpected position — sometimes
+      // in the middle of the WebView content area.
+      //
+      // Fix: pin the container to the bottom of the viewport, full-width,
+      // with zero height. The input element inside will be stretched to fill
+      // it. This tells iOS "the input lives at the very bottom of the screen",
+      // so the action sheet always slides up from the bottom edge — matching
+      // native iOS UX on both Safari and WKWebView.
+      //
+      // DO NOT add pointer-events: none here — that can prevent iOS from
+      // correctly reading the element's hit-test position.
       targetElement.setAttribute(
         'style',
-        'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none;',
+        'position: fixed; bottom: 0; left: 0; width: 100%; height: 0; overflow: hidden; opacity: 0; z-index: -1;',
       );
 
       document.querySelector('body')!.children.add(targetElement);
@@ -87,12 +93,16 @@ class FilePickerWeb extends FilePickerPlatform {
     uploadInput.multiple = allowMultiple;
     uploadInput.accept = accept;
 
-    // Use opacity: 0 instead of display: none so the element has a real
-    // position in the DOM. display: none removes the element from layout,
-    // causing iOS to lose track of where to anchor the picker sheet.
+    // Style the input so it occupies the full bottom strip of the viewport
+    // (same area as the container). iOS / WKWebView reads the input's
+    // bounding rect to decide where to anchor the action sheet; a full-width
+    // element at the bottom guarantees the sheet slides up from the bottom
+    // edge on both Safari and WKWebView, matching native iOS behaviour.
+    // opacity: 0 keeps it invisible; we avoid display:none / visibility:hidden
+    // because those remove the element from the layout and break positioning.
     uploadInput.style.opacity = '0';
-    uploadInput.style.position = 'fixed';
-    uploadInput.style.width = '1px';
+    uploadInput.style.position = 'relative';
+    uploadInput.style.width = '100%';
     uploadInput.style.height = '1px';
 
     bool changeEventTriggered = false;
